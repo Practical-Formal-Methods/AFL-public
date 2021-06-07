@@ -1264,6 +1264,8 @@ static void minimize_bits(u8* dst, u8* src) {
 
 static void update_bitmap_score(struct queue_entry* q) {
 
+  if (true) return; // EXPERIMENT: skip assigning favorite score to inputs
+
   u32 i;
   u64 fav_factor = q->exec_us * q->len;
 
@@ -1335,26 +1337,27 @@ static void cull_queue(void) {
     q = q->next;
   }
 
+  // EXPERIMENT: disable farovred seeds
   /* Let's see if anything in the bitmap isn't captured in temp_v.
      If yes, and if it has a top_rated[] contender, let's use it. */
 
-  for (i = 0; i < MAP_SIZE; i++)
-    if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
+  // for (i = 0; i < MAP_SIZE; i++)
+ //   if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
 
-      u32 j = MAP_SIZE >> 3;
+  //     u32 j = MAP_SIZE >> 3;
 
-      /* Remove all bits belonging to the current entry from temp_v. */
+  //     /* Remove all bits belonging to the current entry from temp_v. */
 
-      while (j--) 
-        if (top_rated[i]->trace_mini[j])
-          temp_v[j] &= ~top_rated[i]->trace_mini[j];
+  //     while (j--) 
+  //       if (top_rated[i]->trace_mini[j])
+  //         temp_v[j] &= ~top_rated[i]->trace_mini[j];
 
-      top_rated[i]->favored = 1;
-      queued_favored++;
+  //     top_rated[i]->favored = 1;
+  //     queued_favored++;
 
-      if (!top_rated[i]->was_fuzzed) pending_favored++;
+  //     if (!top_rated[i]->was_fuzzed) pending_favored++;
 
-    }
+  //   }
 
   q = queue;
 
