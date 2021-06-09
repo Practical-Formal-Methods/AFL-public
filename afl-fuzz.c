@@ -254,7 +254,7 @@ struct queue_entry {
 
   u32 bitmap_size,                    /* Number of bits set in bitmap     */
       exec_cksum;                     /* Checksum of the execution trace  */
-
+  u64 rand;
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
       depth;                          /* Path depth                       */
@@ -267,6 +267,12 @@ struct queue_entry {
 
 };
 
+struct potential_favored_input {
+  struct queue_entry *queue;
+  struct potential_favored_input *next;
+};
+
+static struct potential_favored_input* potential_favored_list[MAP_SIZE];
 static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
                           *queue_cur, /* Current offset within the queue  */
                           *queue_top, /* Top of the list                  */
@@ -1274,32 +1280,13 @@ static void update_bitmap_score(struct queue_entry* q) {
 
     if (trace_bits[i]) {
 
-       if (top_rated[i]) {
+       // insert a new element of input into a linked list for current edge id
+       struct potential_favored_input* new_potential = ck_alloc(sizeof(struct potential_favored_input));
+       new_potential->queue = q;
+       if (potential_favored_list[i])
+         new_potential->next = potential_favored_list[i];
 
-         /* Faster-executing or smaller test cases are favored. */
-
-         if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue;
-
-         /* Looks like we're going to win. Decrease ref count for the
-            previous winner, discard its trace_bits[] if necessary. */
-
-         if (!--top_rated[i]->tc_ref) {
-           ck_free(top_rated[i]->trace_mini);
-           top_rated[i]->trace_mini = 0;
-         }
-
-       }
-
-       /* Insert ourselves as the new winner. */
-
-       top_rated[i] = q;
-       q->tc_ref++;
-
-       if (!q->trace_mini) {
-         q->trace_mini = ck_alloc(MAP_SIZE >> 3);
-         minimize_bits(q->trace_mini, trace_bits);
-       }
-
+       potential_favored_list[i] = new_potential;
        score_changed = 1;
 
      }
@@ -1332,29 +1319,34 @@ static void cull_queue(void) {
 
   while (q) {
     q->favored = 0;
+    q->rand = UR(INT_MAX);
     q = q->next;
   }
 
-  /* Let's see if anything in the bitmap isn't captured in temp_v.
-     If yes, and if it has a top_rated[] contender, let's use it. */
+   for (i = 0; i < MAP_SIZE; i++) {
+    if (potential_favored_list[i]) {
+      struct potential_favored_input* potential_input = potential_favored_list[i];
+      struct queue_entry* new_top_rated;
+      int minimum_random_number = INT_MAX;
+      while (potential_input) {
+        // if the random is the new minimum, the seed is favored
+        if (potential_input->queue->rand < minimum_random_number) {
+          minimum_random_number = potential_input->queue->rand;
+          new_top_rated = potential_input->queue;
+        }
+        potential_input = potential_input->next;
+      }
 
-  for (i = 0; i < MAP_SIZE; i++)
-    if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
-
-      u32 j = MAP_SIZE >> 3;
-
-      /* Remove all bits belonging to the current entry from temp_v. */
-
-      while (j--) 
-        if (top_rated[i]->trace_mini[j])
-          temp_v[j] &= ~top_rated[i]->trace_mini[j];
-
-      top_rated[i]->favored = 1;
-      queued_favored++;
-
-      if (!top_rated[i]->was_fuzzed) pending_favored++;
-
+      if (new_top_rated && !new_top_rated->favored) {
+        new_top_rated->favored = 1;
+        queued_favored++;
+        if (!new_top_rated->was_fuzzed) 
+          pending_favored++;
+      }
     }
+  }
+
+
 
   q = queue;
 
