@@ -1331,7 +1331,7 @@ static void cull_queue(void) {
   q = queue;
 
   while (q) {
-    q->favored = 0;
+    q->favored = 1;
     q = q->next;
   }
 
