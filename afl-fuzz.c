@@ -1258,11 +1258,12 @@ static void minimize_bits(u8* dst, u8* src) {
 
 }
 
-double rand_double(double min, double max) 
+double rand_double() 
 {
-    double range = (max - min); 
-    double div = RAND_MAX / range;
-    return min + (rand() / div);
+  // return random value in interval [0.0,1.0)
+  double rnd = (double)UR(RAND_MAX);
+  double max = (double)RAND_MAX;
+  return rnd / max;
 }
 
 
@@ -1343,7 +1344,7 @@ static void cull_queue(void) {
           rid = r;
         weight -= 1.0;
       }
-      if (weight > 0.0 && weight > rand_double(0.0, 1.0)) {
+      if (weight > 0.0 && weight > rand_double()) {
         r = UR(INT_MAX);
         if (r < rid)
           rid = r;
