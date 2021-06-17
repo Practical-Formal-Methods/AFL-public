@@ -1258,6 +1258,13 @@ static void minimize_bits(u8* dst, u8* src) {
 
 }
 
+double rand_double(double min, double max) 
+{
+    double range = (max - min); 
+    double div = RAND_MAX / range;
+    return min + (rand() / div);
+}
+
 
 /* When we bump into a new path, we call this to see if the path appears
    more "favorable" than any of the existing ones. The purpose of the
@@ -1284,8 +1291,7 @@ static void update_bitmap_score(struct queue_entry* q) {
        // insert a new element of input into a linked list for current edge id
        struct potential_favored_input* new_potential = ck_alloc(sizeof(struct potential_favored_input));
        new_potential->queue = q;
-       if (potential_favored_list[i])
-         new_potential->next = potential_favored_list[i];
+       new_potential->next = potential_favored_list[i];
 
        potential_favored_list[i] = new_potential;
        score_changed = 1;
@@ -1328,11 +1334,25 @@ static void cull_queue(void) {
     if (potential_favored_list[i]) {
       struct potential_favored_input* potential_input = potential_favored_list[i];
       struct queue_entry* new_top_rated;
-      int minimum_random_number = INT_MAX;
+      double weight = 1.0;
+      int r = 0;
+      int rid = INT_MAX;
+      while (weight >= 1.0) {
+        r = UR(INT_MAX);
+        if (r < rid)
+          rid = r;
+        weight -= 1.0;
+      }
+      if (weight > 0.0 && weight > rand_double(0.0, 1.0)) {
+        r = UR(INT_MAX);
+        if (r < rid)
+          rid = r;
+      }
+
       while (potential_input) {
         // if the random is the new minimum, the seed is favored
-        if (potential_input->queue->rand < minimum_random_number) {
-          minimum_random_number = potential_input->queue->rand;
+        if (potential_input->queue->rand < rid) {
+          rid = potential_input->queue->rand;
           new_top_rated = potential_input->queue;
         }
         potential_input = potential_input->next;
