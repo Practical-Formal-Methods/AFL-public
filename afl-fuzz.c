@@ -1323,11 +1323,29 @@ static void cull_queue(void) {
   queued_favored  = 0;
   pending_favored = 0;
 
-  q = queue;
+  int r;
+  int rid;
+  double weight;
 
+  q = queue;
   while (q) {
+    weight = 1.0;
+    r = 0;
+    rid = INT_MAX;
+    while (weight >= 1.0) {
+      r = UR(INT_MAX);
+      if (r < rid)
+        rid = r;
+      weight -= 1.0;
+    }
+    if (weight > 0.0 && weight > rand_double()) {
+      r = UR(INT_MAX);
+      if (r < rid)
+        rid = r;
+    }
+
     q->favored = 0;
-    q->rand = UR(INT_MAX);
+    q->rand = rid;
     q = q->next;
   }
 
@@ -1335,25 +1353,12 @@ static void cull_queue(void) {
     if (potential_favored_list[i]) {
       struct potential_favored_input* potential_input = potential_favored_list[i];
       struct queue_entry* new_top_rated;
-      double weight = 1.0;
-      int r = 0;
-      int rid = INT_MAX;
-      while (weight >= 1.0) {
-        r = UR(INT_MAX);
-        if (r < rid)
-          rid = r;
-        weight -= 1.0;
-      }
-      if (weight > 0.0 && weight > rand_double()) {
-        r = UR(INT_MAX);
-        if (r < rid)
-          rid = r;
-      }
+      int minimum_random_number = INT_MAX;
 
       while (potential_input) {
         // if the random is the new minimum, the seed is favored
-        if (potential_input->queue->rand < rid) {
-          rid = potential_input->queue->rand;
+        if (potential_input->queue->rand < minimum_random_number) {
+          minimum_random_number = potential_input->queue->rand;
           new_top_rated = potential_input->queue;
         }
         potential_input = potential_input->next;
