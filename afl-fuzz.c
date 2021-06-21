@@ -137,7 +137,10 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            run_over10m,               /* Run time over 10 minutes?        */
            persistent_mode,           /* Running in persistent mode?      */
            deferred_mode,             /* Deferred forkserver mode?        */
-           fast_cal;                  /* Try to calibrate faster?         */
+           fast_cal,                  /* Try to calibrate faster?         */
+           enable_throttle_inputs,
+           enable_boost_inputs;
+
 
 static s32 out_fd,                    /* Persistent fd for out_file       */
            dev_urandom_fd = -1,       /* Persistent fd for /dev/urandom   */
@@ -258,7 +261,8 @@ struct queue_entry {
   u64 rand;
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
-      depth;                          /* Path depth                       */
+      depth,                          /* Path depth                       */
+      n_fuzz;                         /* no. of fuzz                      */
 
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */
@@ -816,6 +820,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->len          = len;
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
+  q->n_fuzz       = 1;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1330,6 +1335,20 @@ static void cull_queue(void) {
   q = queue;
   while (q) {
     weight = 1.0;
+    if (enable_boost_inputs) {
+      double base_weight_fac = 1.0;
+      double max_weight_fac_incr = 7.0;
+      double scale_fac = 0.001;
+      double num_selections = (double)q->n_fuzz;
+      weight *= base_weight_fac + max_weight_fac_incr / (scale_fac * num_selections + 1.0);
+    }
+    if (enable_throttle_inputs) {
+      u32 avg_exec_us = total_cal_us / total_cal_cycles;
+      if (q->exec_us * 0.5 > avg_exec_us) {
+        double slow_fac = 0.125;
+        weight *= slow_fac;
+      }
+    }
     r = 0;
     rid = INT_MAX;
     while (weight >= 1.0) {
@@ -3185,6 +3204,17 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  hnb;
   s32 fd;
   u8  keeping = 0, res;
+
+  u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+
+  struct queue_entry* q = queue;
+  while (q) {
+    if (q->exec_cksum == cksum)
+      q->n_fuzz = q->n_fuzz + 1;
+
+    q = q->next;
+
+  }
 
   if (fault == crash_mode) {
 
@@ -8027,6 +8057,9 @@ int main(int argc, char** argv) {
   if (getenv("AFL_NO_ARITH"))      no_arith         = 1;
   if (getenv("AFL_SHUFFLE_QUEUE")) shuffle_queue    = 1;
   if (getenv("AFL_FAST_CAL"))      fast_cal         = 1;
+
+  if (getenv("AFL_BOOST_INPUTS")) enable_boost_inputs           = 1;
+  if (getenv("AFL_THROTTLE_INPUTS")) enable_throttle_inputs     = 1;
 
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
