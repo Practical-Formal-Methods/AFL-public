@@ -1344,7 +1344,7 @@ static void cull_queue(void) {
     }
     if (enable_throttle_inputs) {
       u32 avg_exec_us = total_cal_us / total_cal_cycles;
-      if (q->exec_us * 0.5 > avg_exec_us) {
+      if (q->exec_us * 0.25 > avg_exec_us) {
         double slow_fac = 0.125;
         weight *= slow_fac;
       }
@@ -3204,8 +3204,6 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8  hnb;
   s32 fd;
   u8  keeping = 0, res;
-
-  u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
   if (fault == crash_mode) {
 
