@@ -262,7 +262,7 @@ struct queue_entry {
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
       depth,                          /* Path depth                       */
-      n_fuzz;                         /* no. of fuzz                      */
+      num_fuzzed;                         /* no. of fuzz                      */
 
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */
@@ -820,7 +820,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->len          = len;
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
-  q->n_fuzz       = 1;
+  q->num_fuzzed   = 0;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1339,7 +1339,7 @@ static void cull_queue(void) {
       double base_weight_fac = 1.0;
       double max_weight_fac_incr = 7.0;
       double scale_fac = 0.001;
-      double num_selections = (double)q->n_fuzz;
+      double num_selections = (double)q->num_fuzzed;
       weight *= base_weight_fac + max_weight_fac_incr / (scale_fac * num_selections + 1.0);
     }
     if (enable_throttle_inputs) {
@@ -3207,15 +3207,6 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
   u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
-  struct queue_entry* q = queue;
-  while (q) {
-    if (q->exec_cksum == cksum)
-      q->n_fuzz = q->n_fuzz + 1;
-
-    q = q->next;
-
-  }
-
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
@@ -4710,6 +4701,8 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
   write_to_testcase(out_buf, len);
 
   fault = run_target(argv, exec_tmout);
+
+  queue_cur->num_fuzzed++;
 
   if (stop_soon) return 1;
 
