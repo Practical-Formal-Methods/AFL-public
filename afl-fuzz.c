@@ -139,6 +139,7 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            deferred_mode,             /* Deferred forkserver mode?        */
            fast_cal,                  /* Try to calibrate faster?         */
            enable_throttle_inputs,
+           enable_boost_fast_seqs,
            enable_boost_inputs;
 
 
@@ -1348,6 +1349,13 @@ static void cull_queue(void) {
         double slow_fac = 0.125;
         weight *= slow_fac;
       }
+    }
+    if (enable_boost_fast_seqs) {
+      double base_weight_fac = 2.0;
+      double max_weight_fac_decr = 1.75;
+      double scale_fac = 0.01;
+      double execs_per_sec = 0.000001 / (double) q->exec_us;
+      weight *= base_weight_fac - max_weight_fac_decr / (scale_fac*execs_per_sec + 1.0);
     }
     r = 0;
     rid = INT_MAX;
@@ -8051,6 +8059,7 @@ int main(int argc, char** argv) {
 
   if (getenv("AFL_BOOST_INPUTS")) enable_boost_inputs           = 1;
   if (getenv("AFL_THROTTLE_INPUTS")) enable_throttle_inputs     = 1;
+  if (getenv("AFL_BOOST_FAST_SEQS")) enable_boost_fast_seqs     = 1;
 
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
