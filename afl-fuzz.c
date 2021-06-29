@@ -1354,7 +1354,7 @@ static void cull_queue(void) {
       double base_weight_fac = 2.0;
       double max_weight_fac_decr = 1.75;
       double scale_fac = 0.01;
-      double execs_per_sec = 0.000001 / (double) q->exec_us;
+      double execs_per_sec = 1000000.0 / (double) q->exec_us;
       weight *= base_weight_fac - max_weight_fac_decr / (scale_fac*execs_per_sec + 1.0);
     }
     r = 0;
