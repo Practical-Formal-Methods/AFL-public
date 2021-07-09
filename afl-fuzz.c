@@ -275,10 +275,6 @@ static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
 
 static struct queue_entry*
   top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */
-
-static struct queue_entry*
-  queue_list[MAP_SIZE]; // array of all inputs so far, need to set some threshold for now
-
 struct extra_data {
   u8* data;                           /* Dictionary token data            */
   u32 len;                            /* Dictionary token length          */
@@ -814,8 +810,6 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
 
-  queue_list[queued_paths] = q;
-
   if (q->depth > max_depth) max_depth = q->depth;
 
   if (queue_top) {
@@ -1323,37 +1317,42 @@ double rand_double()
 // find the first element in array that is greater or equal target
 int first_greater_or_equal_element(double arr[], double target, int end)
 {
-    int start = 0;
-    int ans = -1;
-    while (start <= end)
-    {
-        int mid = (start + end) / 2;
-        if (arr[mid] < target) {
-            start = mid + 1;
-        } else {
-            ans = mid;
-            end = mid - 1;
-        }
+    int lo = 0;
+    int hi = end;
+    while (lo < hi) {
+      int mid = lo + ((hi - lo) / 2);
+      if (target < arr[mid]) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
     }
-    return ans;
+    return lo;
 }
 
 
 static void mark_selected_inputs() {
   double cumulative_sum[queued_paths];
   double total_weight = 0.0;
-  
-  // generate weight each input and sum into an array
-  for (int i = 0; i < queued_paths; i++) {
+  struct queue_entry* q;
+  struct queue_entry* queue_list[queued_paths];
+
+  int idx = 0;
+  q = queue;
+  // generate weight for each input and sum into an array
+  while (q) {
     double w = 1.0;
-    queue_list[i]->is_selected = 0; // reset flag from previous cycle
-    if (queue_list[i]->favored) {
+    if (q->favored) {
       w *= 20.0;
-    } else if (!queue_list[i]->was_fuzzed) { 
+    } else if (!q->was_fuzzed) {
       w *= 5.0;
     }
+
+    q->is_selected = 0; // reset flag from previous cycle
     total_weight += w;
-    cumulative_sum[i] = total_weight;
+    queue_list[idx] = q;
+    cumulative_sum[idx] = total_weight;
+    q = q->next;
   }
 
   int total_selected = 0;
