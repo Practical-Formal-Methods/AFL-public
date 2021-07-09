@@ -1393,7 +1393,7 @@ static void cull_queue(void) {
 
   q = queue;
 
-  while (q) {    
+  while (q) {
     q->favored = 0;
     q = q->next;
   }
@@ -1422,9 +1422,9 @@ static void cull_queue(void) {
   q = queue;
 
   while (q) {
-    mark_as_redundant(q, !q->favored);    
+    mark_as_redundant(q, !q->favored);
     q = q->next;
-  }  
+  }
 
 }
 
@@ -8122,8 +8122,6 @@ int main(int argc, char** argv) {
     u8 skipped_fuzz;
 
     cull_queue();
-
-    
 
     if (!queue_cur) {
 
