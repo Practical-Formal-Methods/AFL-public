@@ -1353,6 +1353,7 @@ static void mark_selected_inputs() {
     queue_list[idx] = q;
     cumulative_sum[idx] = total_weight;
     q = q->next;
+    idx++;
   }
 
   int total_selected = 0;
