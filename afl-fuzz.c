@@ -1315,7 +1315,7 @@ double rand_double()
 }
 
 // find the first element in array that is greater or equal target
-int first_greater_or_equal_element(double arr[], double target, int end)
+int first_greater_element(double arr[], double target, int end)
 {
     int lo = 0;
     int hi = end;
@@ -1359,7 +1359,7 @@ static void mark_selected_inputs() {
   while (total_selected < 64) {
     // find random number and search this number in the array
     double r = rand_double() * total_weight; 
-    int seed_idx = first_greater_or_equal_element(cumulative_sum, r, queued_paths);
+    int seed_idx = first_greater_element(cumulative_sum, r, queued_paths);
     if (queue_list[seed_idx]->is_selected)
       break;
 
