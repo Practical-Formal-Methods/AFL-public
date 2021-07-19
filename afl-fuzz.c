@@ -255,7 +255,8 @@ struct queue_entry {
       has_new_cov,                    /* Triggers new coverage?           */
       var_behavior,                   /* Variable behavior?               */
       favored,                        /* Currently favored?               */
-      fs_redundant;                   /* Marked as redundant in the fs?   */
+      fs_redundant,                   /* Marked as redundant in the fs?   */
+      is_selected;
 
   u32 bitmap_size,                    /* Number of bits set in bitmap     */
       exec_cksum;                     /* Checksum of the execution trace  */
@@ -286,7 +287,6 @@ static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
 
 static struct queue_entry*
   top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */
-
 struct extra_data {
   u8* data;                           /* Dictionary token data            */
   u32 len;                            /* Dictionary token length          */
@@ -1307,6 +1307,69 @@ static void update_bitmap_score(struct queue_entry* q) {
 
 }
 
+double rand_double() 
+{
+  // return random value in interval [0.0,1.0)
+  double rnd = (double)UR(RAND_MAX);
+  double max = (double)RAND_MAX;
+  return rnd / max;
+}
+
+// find the first element in array that is greater or equal target
+int first_greater_element(double arr[], double target, int end)
+{
+    int lo = 0;
+    int hi = end;
+    while (lo < hi) {
+      int mid = lo + ((hi - lo) / 2);
+      if (target < arr[mid]) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return lo;
+}
+
+
+static void mark_selected_inputs() {
+  double cumulative_sum[queued_paths];
+  double total_weight = 0.0;
+  struct queue_entry* q;
+  struct queue_entry* queue_list[queued_paths];
+
+  int idx = 0;
+  q = queue;
+  // generate weight for each input and sum into an array
+  while (q) {
+    double w = 1.0;
+    if (q->favored) {
+      w *= 20.0;
+    } else if (!q->was_fuzzed) {
+      w *= 5.0;
+    }
+
+    q->is_selected = 0; // reset flag from previous cycle
+    total_weight += w;
+    queue_list[idx] = q;
+    cumulative_sum[idx] = total_weight;
+    q = q->next;
+    idx++;
+  }
+
+  int total_selected = 0;
+  while (total_selected < 64) {
+    // find random number and search this number in the array
+    double r = rand_double() * total_weight; 
+    int seed_idx = first_greater_element(cumulative_sum, r, queued_paths);
+    if (queue_list[seed_idx]->is_selected)
+      break;
+
+    queue_list[seed_idx]->is_selected = 1;
+    total_selected++;
+  }
+
+}
 
 /* The second part of the mechanism discussed above is a routine that
    goes over top_rated[] entries, and then sequentially grabs winners for
@@ -5060,43 +5123,9 @@ static u8 fuzz_one(char** argv) {
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
 
-#ifdef IGNORE_FINDS
-
-  /* In IGNORE_FINDS mode, skip any entries that weren't in the
-     initial data set. */
-
-  if (queue_cur->depth > 1) return 1;
-
-#else
-
-  if (pending_favored) {
-
-    /* If we have any favored, non-fuzzed new arrivals in the queue,
-       possibly skip to them at the expense of already-fuzzed or non-favored
-       cases. */
-
-    if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
-        UR(100) < SKIP_TO_NEW_PROB) return 1;
-
-  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {
-
-    /* Otherwise, still possibly skip non-favored cases, albeit less often.
-       The odds of skipping stuff are higher for already-fuzzed inputs and
-       lower for never-fuzzed entries. */
-
-    if (queue_cycle > 1 && !queue_cur->was_fuzzed) {
-
-      if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;
-
-    } else {
-
-      if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;
-
-    }
-
-  }
-
-#endif /* ^IGNORE_FINDS */
+  // only fuzz selected inputs from our custom selection algorithm 
+  if (!queue_cur->is_selected)
+    return 1;
 
   if (not_on_tty) {
     ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
@@ -8158,6 +8187,8 @@ int main(int argc, char** argv) {
         seek_to--;
         queue_cur = queue_cur->next;
       }
+
+      mark_selected_inputs();
 
       show_stats();
 
