@@ -1307,14 +1307,6 @@ static void update_bitmap_score(struct queue_entry* q) {
 
 }
 
-double rand_double() 
-{
-  // return random value in interval [0.0,1.0)
-  double rnd = (double)UR(RAND_MAX);
-  double max = (double)RAND_MAX;
-  return rnd / max;
-}
-
 // find the first element in array that is greater or equal target
 int first_greater_element(double arr[], double target, int end)
 {
