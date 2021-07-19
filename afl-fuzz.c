@@ -1393,7 +1393,7 @@ static void cull_queue(void) {
     weight = 1.0;
     if (enable_boost_inputs) {
       double base_weight_fac = 1.0;
-      double max_weight_fac_incr = 7.0;
+      double max_weight_fac_incr = 15.0;
       double scale_fac = 0.001;
       double num_selections = (double)q->num_fuzzed;
       weight *= base_weight_fac + max_weight_fac_incr / (scale_fac * num_selections + 1.0);
