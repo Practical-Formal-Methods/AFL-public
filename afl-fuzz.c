@@ -290,6 +290,7 @@ static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
 
 static struct queue_entry*
   top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */
+
 struct extra_data {
   u8* data;                           /* Dictionary token data            */
   u32 len;                            /* Dictionary token length          */
@@ -1291,60 +1292,60 @@ static void update_bitmap_score(struct queue_entry* q) {
   u32 i;
   u64 fav_factor = q->exec_us * q->len;
 
-  if (disable_random_favorites) {
-
-    /* For every byte set in trace_bits[], see if there is a previous winner,
-      and how it compares to us. */
-
-    for (i = 0; i < MAP_SIZE; i++)
-
+  // this overides how afl tracks score for favorite input selection
+  if (!disable_random_favorites) {
+    for (i = 0; i < MAP_SIZE; i++) {
       if (trace_bits[i]) {
 
-        if (top_rated[i]) {
+      // insert a new element of input into a linked list for current edge id
+      struct potential_favored_input* new_potential = ck_alloc(sizeof(struct potential_favored_input));
+      new_potential->queue = q;
+      new_potential->next = potential_favored_list[i];
 
-          /* Faster-executing or smaller test cases are favored. */
-
-          if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue;
-
-          /* Looks like we're going to win. Decrease ref count for the
-              previous winner, discard its trace_bits[] if necessary. */
-
-          if (!--top_rated[i]->tc_ref) {
-            ck_free(top_rated[i]->trace_mini);
-            top_rated[i]->trace_mini = 0;
-          }
-
-        }
-
-        /* Insert ourselves as the new winner. */
-
-        top_rated[i] = q;
-        q->tc_ref++;
-
-        if (!q->trace_mini) {
-          q->trace_mini = ck_alloc(MAP_SIZE >> 3);
-          minimize_bits(q->trace_mini, trace_bits);
-        }
-
-        score_changed = 1;
+      potential_favored_list[i] = new_potential;
+      score_changed = 1;
       }
+    }
+    return;
+  }
 
-  } else {
+  /* For every byte set in trace_bits[], see if there is a previous winner,
+     and how it compares to us. */
 
-    for (i = 0; i < MAP_SIZE; i++)
+  for (i = 0; i < MAP_SIZE; i++)
 
-      if (trace_bits[i]) {
+    if (trace_bits[i]) {
 
-        // insert a new element of input into a linked list for current edge id
-        struct potential_favored_input* new_potential = ck_alloc(sizeof(struct potential_favored_input));
-        new_potential->queue = q;
-        new_potential->next = potential_favored_list[i];
+       if (top_rated[i]) {
 
-        potential_favored_list[i] = new_potential;
-        score_changed = 1;
+         /* Faster-executing or smaller test cases are favored. */
+
+         if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue;
+
+         /* Looks like we're going to win. Decrease ref count for the
+            previous winner, discard its trace_bits[] if necessary. */
+
+         if (!--top_rated[i]->tc_ref) {
+           ck_free(top_rated[i]->trace_mini);
+           top_rated[i]->trace_mini = 0;
+         }
+
+       }
+
+       /* Insert ourselves as the new winner. */
+
+       top_rated[i] = q;
+       q->tc_ref++;
+
+       if (!q->trace_mini) {
+         q->trace_mini = ck_alloc(MAP_SIZE >> 3);
+         minimize_bits(q->trace_mini, trace_bits);
+       }
+
+       score_changed = 1;
 
      }
-  }
+
 }
 
 // find the first element in array that is greater or equal target
