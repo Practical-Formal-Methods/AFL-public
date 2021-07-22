@@ -141,7 +141,9 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            enable_throttle_inputs,
            enable_boost_fast_seqs,
            enable_boost_inputs,
-           disable_weighted_random_selection;
+           disable_weighted_random_selection,
+           disable_random_favorites,
+           disable_afl_default_favorites;
 
 
 static s32 out_fd,                    /* Persistent fd for out_file       */
@@ -1385,73 +1387,110 @@ static void cull_queue(void) {
   queued_favored  = 0;
   pending_favored = 0;
 
-  int r;
-  int rid;
-  double weight;
-
   q = queue;
-  while (q) {
-    weight = 1.0;
-    if (enable_boost_inputs) {
-      double base_weight_fac = 1.0;
-      double max_weight_fac_incr = 15.0;
-      double scale_fac = 0.001;
-      double num_selections = (double)q->num_fuzzed;
-      weight *= base_weight_fac + max_weight_fac_incr / (scale_fac * num_selections + 1.0);
-    }
-    if (enable_throttle_inputs) {
-      u32 avg_exec_us = total_cal_us / total_cal_cycles;
-      if (q->exec_us * 0.25 > avg_exec_us) {
-        double slow_fac = 0.125;
-        weight *= slow_fac;
-      }
-    }
-    if (enable_boost_fast_seqs) {
-      double base_weight_fac = 2.0;
-      double max_weight_fac_decr = 1.75;
-      double scale_fac = 0.01;
-      double execs_per_sec = 1000000.0 / (double) q->exec_us;
-      weight *= base_weight_fac - max_weight_fac_decr / (scale_fac*execs_per_sec + 1.0);
-    }
-    r = 0;
-    rid = INT_MAX;
-    while (weight >= 1.0) {
-      r = UR(INT_MAX);
-      if (r < rid)
-        rid = r;
-      weight -= 1.0;
-    }
-    if (weight > 0.0 && weight > rand_double()) {
-      r = UR(INT_MAX);
-      if (r < rid)
-        rid = r;
+
+  // use AFL's original mechanism to assign favorites
+  if (disable_random_favorites) {
+
+    while (q) {
+      if (disable_afl_default_favorites)
+        q->favored = 1;
+      else
+        q->favored = 0;
+      q = q->next;
     }
 
-    q->favored = 0;
-    q->rand = rid;
-    q = q->next;
-  }
+    /* Let's see if anything in the bitmap isn't captured in temp_v.
+      If yes, and if it has a top_rated[] contender, let's use it. */
 
-   for (i = 0; i < MAP_SIZE; i++) {
-    if (potential_favored_list[i]) {
-      struct potential_favored_input* potential_input = potential_favored_list[i];
-      struct queue_entry* new_top_rated;
-      int minimum_random_number = INT_MAX;
+    for (i = 0; i < MAP_SIZE; i++)
+      if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
 
-      while (potential_input) {
-        // if the random is the new minimum, the seed is favored
-        if (potential_input->queue->rand < minimum_random_number) {
-          minimum_random_number = potential_input->queue->rand;
-          new_top_rated = potential_input->queue;
-        }
-        potential_input = potential_input->next;
-      }
+        u32 j = MAP_SIZE >> 3;
 
-      if (new_top_rated && !new_top_rated->favored) {
-        new_top_rated->favored = 1;
+        /* Remove all bits belonging to the current entry from temp_v. */
+
+        while (j--) 
+          if (top_rated[i]->trace_mini[j])
+            temp_v[j] &= ~top_rated[i]->trace_mini[j];
+
+        top_rated[i]->favored = 1;
         queued_favored++;
-        if (!new_top_rated->was_fuzzed) 
-          pending_favored++;
+
+        if (!top_rated[i]->was_fuzzed) pending_favored++;
+
+      }
+      
+  } else {
+    // otherwise, randomly assign favorites
+    int r;
+    int rid;
+    double weight;
+
+    while (q) {
+
+      weight = 1.0;
+      if (enable_boost_inputs) {
+        double base_weight_fac = 1.0;
+        double max_weight_fac_incr = 15.0;
+        double scale_fac = 0.001;
+        double num_selections = (double)q->num_fuzzed;
+        weight *= base_weight_fac + max_weight_fac_incr / (scale_fac * num_selections + 1.0);
+      }
+      if (enable_throttle_inputs) {
+        u32 avg_exec_us = total_cal_us / total_cal_cycles;
+        if (q->exec_us * 0.25 > avg_exec_us) {
+          double slow_fac = 0.125;
+          weight *= slow_fac;
+        }
+      }
+      if (enable_boost_fast_seqs) {
+        double base_weight_fac = 2.0;
+        double max_weight_fac_decr = 1.75;
+        double scale_fac = 0.01;
+        double execs_per_sec = 1000000.0 / (double) q->exec_us;
+        weight *= base_weight_fac - max_weight_fac_decr / (scale_fac*execs_per_sec + 1.0);
+      }
+      r = 0;
+      rid = INT_MAX;
+      while (weight >= 1.0) {
+        r = UR(INT_MAX);
+        if (r < rid)
+          rid = r;
+        weight -= 1.0;
+      }
+      if (weight > 0.0 && weight > rand_double()) {
+        r = UR(INT_MAX);
+        if (r < rid)
+          rid = r;
+      }
+
+      q->favored = 0;
+      q->rand = rid;
+      q = q->next;
+    }
+
+    for (i = 0; i < MAP_SIZE; i++) {
+      if (potential_favored_list[i]) {
+        struct potential_favored_input* potential_input = potential_favored_list[i];
+        struct queue_entry* new_top_rated;
+        int minimum_random_number = INT_MAX;
+
+        while (potential_input) {
+          // if the random is the new minimum, the seed is favored
+          if (potential_input->queue->rand < minimum_random_number) {
+            minimum_random_number = potential_input->queue->rand;
+            new_top_rated = potential_input->queue;
+          }
+          potential_input = potential_input->next;
+        }
+
+        if (new_top_rated && !new_top_rated->favored) {
+          new_top_rated->favored = 1;
+          queued_favored++;
+          if (!new_top_rated->was_fuzzed)
+            pending_favored++;
+        }
       }
     }
   }
@@ -5120,6 +5159,44 @@ static u8 fuzz_one(char** argv) {
   if (!disable_weighted_random_selection && !queue_cur->is_selected)
     return 1;
 
+#ifdef IGNORE_FINDS
+
+  /* In IGNORE_FINDS mode, skip any entries that weren't in the
+     initial data set. */
+
+  if (queue_cur->depth > 1) return 1;
+
+#else
+
+  if (pending_favored) {
+
+    /* If we have any favored, non-fuzzed new arrivals in the queue,
+       possibly skip to them at the expense of already-fuzzed or non-favored
+       cases. */
+
+    if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
+        UR(100) < SKIP_TO_NEW_PROB) return 1;
+
+  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {
+
+    /* Otherwise, still possibly skip non-favored cases, albeit less often.
+       The odds of skipping stuff are higher for already-fuzzed inputs and
+       lower for never-fuzzed entries. */
+
+    if (queue_cycle > 1 && !queue_cur->was_fuzzed) {
+
+      if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;
+
+    } else {
+
+      if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;
+
+    }
+
+  }
+
+#endif /* ^IGNORE_FINDS */
+
   if (not_on_tty) {
     ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
          current_entry, queued_paths, unique_crashes);
@@ -8079,10 +8156,12 @@ int main(int argc, char** argv) {
   if (getenv("AFL_SHUFFLE_QUEUE")) shuffle_queue    = 1;
   if (getenv("AFL_FAST_CAL"))      fast_cal         = 1;
 
-  if (getenv("AFL_BOOST_INPUTS")) enable_boost_inputs                   = 1;
-  if (getenv("AFL_THROTTLE_INPUTS")) enable_throttle_inputs             = 1;
-  if (getenv("AFL_BOOST_FAST_SEQS")) enable_boost_fast_seqs             = 1;
-  if (getenv("AFL_DISABLE_WRS")) disable_weighted_random_selection      = 1;
+  if (getenv("AFL_BOOST_INPUTS"))     enable_boost_inputs                 = 1;
+  if (getenv("AFL_THROTTLE_INPUTS"))  enable_throttle_inputs              = 1;
+  if (getenv("AFL_BOOST_FAST_SEQS"))  enable_boost_fast_seqs              = 1;
+  if (getenv("AFL_DISABLE_WRS"))      disable_weighted_random_selection   = 1;
+  if (getenv("AFL_DISABLE_RF"))       disable_random_favorites            = 1;  
+  if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
 
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
