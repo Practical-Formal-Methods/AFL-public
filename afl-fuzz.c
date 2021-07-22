@@ -140,7 +140,8 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            fast_cal,                  /* Try to calibrate faster?         */
            enable_throttle_inputs,
            enable_boost_fast_seqs,
-           enable_boost_inputs;
+           enable_boost_inputs,
+           disable_weighted_random_selection;
 
 
 static s32 out_fd,                    /* Persistent fd for out_file       */
@@ -1338,7 +1339,7 @@ static void mark_selected_inputs() {
     if (q->favored) {
       w *= 20.0;
     } else if (!q->was_fuzzed) {
-      w *= 5.0;
+      w *= 1.0; // based on the experiments, 1.0 outperforms 5.0 (which is the original probabilities to fuzz brand new inputs in AFL)
     }
 
     q->is_selected = 0; // reset flag from previous cycle
@@ -5116,7 +5117,7 @@ static u8 fuzz_one(char** argv) {
   u32 a_len = 0;
 
   // only fuzz selected inputs from our custom selection algorithm 
-  if (!queue_cur->is_selected)
+  if (!disable_weighted_random_selection && !queue_cur->is_selected)
     return 1;
 
   if (not_on_tty) {
@@ -8078,9 +8079,10 @@ int main(int argc, char** argv) {
   if (getenv("AFL_SHUFFLE_QUEUE")) shuffle_queue    = 1;
   if (getenv("AFL_FAST_CAL"))      fast_cal         = 1;
 
-  if (getenv("AFL_BOOST_INPUTS")) enable_boost_inputs           = 1;
-  if (getenv("AFL_THROTTLE_INPUTS")) enable_throttle_inputs     = 1;
-  if (getenv("AFL_BOOST_FAST_SEQS")) enable_boost_fast_seqs     = 1;
+  if (getenv("AFL_BOOST_INPUTS")) enable_boost_inputs                   = 1;
+  if (getenv("AFL_THROTTLE_INPUTS")) enable_throttle_inputs             = 1;
+  if (getenv("AFL_BOOST_FAST_SEQS")) enable_boost_fast_seqs             = 1;
+  if (getenv("AFL_DISABLE_WRS")) disable_weighted_random_selection      = 1;
 
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
@@ -8180,7 +8182,8 @@ int main(int argc, char** argv) {
         queue_cur = queue_cur->next;
       }
 
-      mark_selected_inputs();
+      if (!disable_weighted_random_selection)
+        mark_selected_inputs();
 
       show_stats();
 
