@@ -1345,7 +1345,7 @@ static void mark_selected_inputs() {
     if (q->favored) {
       w *= 20.0;
     } else if (!q->was_fuzzed) {
-      w *= 5.0;
+      w *= 1.0; // based on the experiments, 1.0 outperforms 5.0 (which is the original probabilities to fuzz brand new inputs in AFL)
     }
 
     q->is_selected = 0; // reset flag from previous cycle
