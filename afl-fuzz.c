@@ -141,7 +141,8 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            disable_weighted_random_selection,
            disable_random_favorites,
            enable_uniformly_random_favorites,
-           disable_afl_default_favorites;
+           disable_afl_default_favorites,
+           disable_randomized_fuzzing_params;
 
 
 static s32 out_fd,                    /* Persistent fd for out_file       */
@@ -349,6 +350,17 @@ enum {
   /* 04 */ FAULT_NOINST,
   /* 05 */ FAULT_NOBITS
 };
+
+static int  randomize_parameters_prob;
+
+/* list of fuzzing parameter constants found in config.h */
+static int  custom_havoc_cycles       = HAVOC_CYCLES,
+            custom_havoc_stack_pow2   = HAVOC_STACK_POW2,
+            custom_havoc_blk_small    = HAVOC_BLK_SMALL,
+            custom_havok_blk_medium   = HAVOC_BLK_MEDIUM,
+            custom_havoc_blk_large    = HAVOC_BLK_LARGE,
+            custom_splice_cycles      = SPLICE_CYCLES,
+            custom_splice_havoc       = SPLICE_HAVOC;
 
 
 /* Get unix time in milliseconds */
@@ -1274,6 +1286,12 @@ double rand_double()
   return rnd / max;
 }
 
+int rand_int_in_range(int low, int high) {
+    double rnd = rand() / (1.0 + RAND_MAX);
+    int range = high - low + 1;
+    int rnd_scaled = (rnd * range) + low;
+    return rnd_scaled;
+}
 
 /* When we bump into a new path, we call this to see if the path appears
    more "favorable" than any of the existing ones. The purpose of the
@@ -1400,6 +1418,14 @@ static void mark_selected_inputs() {
     total_selected++;
   }
 
+}
+
+static void reset_fuzzing_params() {
+  custom_havoc_stack_pow2 = HAVOC_STACK_POW2;
+}
+
+static void randomize_fuzzing_params() {
+  custom_havoc_stack_pow2 = rand_int_in_range(4, 10);
 }
 
 /* The second part of the mechanism discussed above is a routine that
@@ -6332,7 +6358,7 @@ havoc_stage:
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
-    u32 use_stacking = 1 << (1 + UR(HAVOC_STACK_POW2));
+    u32 use_stacking = 1 << (1 + UR(custom_havoc_stack_pow2));
 
     stage_cur_val = use_stacking;
  
@@ -8187,8 +8213,13 @@ int main(int argc, char** argv) {
 
   if (getenv("AFL_DISABLE_WRS"))      disable_weighted_random_selection   = 1;
   if (getenv("AFL_DISABLE_RF"))       disable_random_favorites            = 1;
-  if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favorites    = 1;
+  if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favorites   = 1;
   if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
+  if (getenv("AFL_DISABLE_RP"))       disable_randomized_fuzzing_params   = 1;
+
+  if (getenv("AFL_RP_PROB")) {
+    randomize_parameters_prob = strtoul(getenv("AFL_RP_PROB"), 0L, 10);
+  } 
 
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
@@ -8290,6 +8321,14 @@ int main(int argc, char** argv) {
 
       if (!disable_weighted_random_selection)
         mark_selected_inputs();
+
+      if (!disable_randomized_fuzzing_params) {
+        // randomize fuzzing params with probabilities
+        if (UR(100) < randomize_parameters_prob)
+          randomize_fuzzing_params();
+        else
+          reset_fuzzing_params();
+      }
 
       show_stats();
 
