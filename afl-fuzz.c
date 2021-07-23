@@ -137,8 +137,7 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            run_over10m,               /* Run time over 10 minutes?        */
            persistent_mode,           /* Running in persistent mode?      */
            deferred_mode,             /* Deferred forkserver mode?        */
-           fast_cal,                  /* Try to calibrate faster?         */
-           enable_throttle_inputs,
+           fast_cal,                  /* Try to calibrate faster?         */           
            enable_boost_fast_seqs,
            enable_boost_inputs,
            disable_weighted_random_selection,
@@ -1474,14 +1473,7 @@ static void cull_queue(void) {
         double scale_fac = 0.001;
         double num_selections = (double)q->num_fuzzed;
         weight *= base_weight_fac + max_weight_fac_incr / (scale_fac * num_selections + 1.0);
-      }
-      if (enable_throttle_inputs) {
-        u32 avg_exec_us = total_cal_us / total_cal_cycles;
-        if (q->exec_us * 0.25 > avg_exec_us) {
-          double slow_fac = 0.125;
-          weight *= slow_fac;
-        }
-      }
+      }      
       if (enable_boost_fast_seqs) {
         double base_weight_fac = 2.0;
         double max_weight_fac_decr = 1.75;
@@ -8195,10 +8187,9 @@ int main(int argc, char** argv) {
   if (getenv("AFL_FAST_CAL"))      fast_cal         = 1;
 
   if (getenv("AFL_BOOST_INPUTS"))     enable_boost_inputs                 = 1;
-  if (getenv("AFL_THROTTLE_INPUTS"))  enable_throttle_inputs              = 1;
   if (getenv("AFL_BOOST_FAST_SEQS"))  enable_boost_fast_seqs              = 1;
   if (getenv("AFL_DISABLE_WRS"))      disable_weighted_random_selection   = 1;
-  if (getenv("AFL_DISABLE_RF"))       disable_random_favorites            = 1;  
+  if (getenv("AFL_DISABLE_RF"))       disable_random_favorites            = 1;
   if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
 
   if (getenv("AFL_HANG_TMOUT")) {
