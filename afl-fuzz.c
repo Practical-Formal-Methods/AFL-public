@@ -1467,18 +1467,18 @@ static void cull_queue(void) {
       weight = 1.0;
       if (!enable_uniformly_random_favorites) {
         // enable_boost_inputs
-        double base_weight_fac = 1.0;
+        double base_weight_fac_boost_inputs = 1.0;
         double max_weight_fac_incr = 15.0;
-        double scale_fac = 0.001;
+        double scale_fac_boost_inputs = 0.001;
         double num_selections = (double)q->num_fuzzed;
-        weight *= base_weight_fac + max_weight_fac_incr / (scale_fac * num_selections + 1.0);
+        weight *= base_weight_fac_boost_inputs + max_weight_fac_incr / (scale_fac_boost_inputs * num_selections + 1.0);
 
         // enable_boost_fast_seqs
-        double base_weight_fac = 2.0;
+        double base_weight_fac_boost_fast = 2.0;
         double max_weight_fac_decr = 1.75;
-        double scale_fac = 0.01;
+        double scale_fac_boost_fast = 0.01;
         double execs_per_sec = 1000000.0 / (double) q->exec_us;
-        weight *= base_weight_fac - max_weight_fac_decr / (scale_fac*execs_per_sec + 1.0);
+        weight *= base_weight_fac_boost_fast - max_weight_fac_decr / (scale_fac_boost_fast*execs_per_sec + 1.0);
       }
       r = 0;
       rid = INT_MAX;
