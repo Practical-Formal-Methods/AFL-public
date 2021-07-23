@@ -140,7 +140,7 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            fast_cal,                  /* Try to calibrate faster?         */
            disable_weighted_random_selection,
            disable_random_favorites,
-           enable_uniformly_random_favories,
+           enable_uniformly_random_favorites,
            disable_afl_default_favorites;
 
 
@@ -1465,7 +1465,7 @@ static void cull_queue(void) {
 
     while (q) {
       weight = 1.0;
-      if (!enable_uniformly_random_favories) {
+      if (!enable_uniformly_random_favorites) {
         // enable_boost_inputs
         double base_weight_fac = 1.0;
         double max_weight_fac_incr = 15.0;
@@ -8187,7 +8187,7 @@ int main(int argc, char** argv) {
 
   if (getenv("AFL_DISABLE_WRS"))      disable_weighted_random_selection   = 1;
   if (getenv("AFL_DISABLE_RF"))       disable_random_favorites            = 1;
-  if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favories    = 1;
+  if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favorites    = 1;
   if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
 
   if (getenv("AFL_HANG_TMOUT")) {
