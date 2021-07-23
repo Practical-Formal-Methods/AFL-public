@@ -137,11 +137,10 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            run_over10m,               /* Run time over 10 minutes?        */
            persistent_mode,           /* Running in persistent mode?      */
            deferred_mode,             /* Deferred forkserver mode?        */
-           fast_cal,                  /* Try to calibrate faster?         */           
-           enable_boost_fast_seqs,
-           enable_boost_inputs,
+           fast_cal,                  /* Try to calibrate faster?         */
            disable_weighted_random_selection,
            disable_random_favorites,
+           enable_uniformly_random_favories,
            disable_afl_default_favorites;
 
 
@@ -1465,16 +1464,16 @@ static void cull_queue(void) {
     double weight;
 
     while (q) {
-
       weight = 1.0;
-      if (enable_boost_inputs) {
+      if (!enable_uniformly_random_favories) {
+        // enable_boost_inputs
         double base_weight_fac = 1.0;
         double max_weight_fac_incr = 15.0;
         double scale_fac = 0.001;
         double num_selections = (double)q->num_fuzzed;
         weight *= base_weight_fac + max_weight_fac_incr / (scale_fac * num_selections + 1.0);
-      }      
-      if (enable_boost_fast_seqs) {
+
+        // enable_boost_fast_seqs
         double base_weight_fac = 2.0;
         double max_weight_fac_decr = 1.75;
         double scale_fac = 0.01;
@@ -8186,10 +8185,9 @@ int main(int argc, char** argv) {
   if (getenv("AFL_SHUFFLE_QUEUE")) shuffle_queue    = 1;
   if (getenv("AFL_FAST_CAL"))      fast_cal         = 1;
 
-  if (getenv("AFL_BOOST_INPUTS"))     enable_boost_inputs                 = 1;
-  if (getenv("AFL_BOOST_FAST_SEQS"))  enable_boost_fast_seqs              = 1;
   if (getenv("AFL_DISABLE_WRS"))      disable_weighted_random_selection   = 1;
   if (getenv("AFL_DISABLE_RF"))       disable_random_favorites            = 1;
+  if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favories    = 1;
   if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
 
   if (getenv("AFL_HANG_TMOUT")) {
