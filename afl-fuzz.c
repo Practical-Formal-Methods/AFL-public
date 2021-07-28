@@ -1287,10 +1287,8 @@ double rand_double()
 }
 
 int rand_int_in_range(int low, int high) {
-    double rnd = rand() / (1.0 + RAND_MAX);
     int range = high - low + 1;
-    int rnd_scaled = (rnd * range) + low;
-    return rnd_scaled;
+    return low + UR(range);
 }
 
 /* When we bump into a new path, we call this to see if the path appears
