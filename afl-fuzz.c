@@ -1419,11 +1419,23 @@ static void mark_selected_inputs() {
 }
 
 static void reset_fuzzing_params() {
-  custom_havoc_stack_pow2 = HAVOC_STACK_POW2;
+  custom_havoc_cycles       = HAVOC_CYCLES;
+  custom_havoc_stack_pow2   = HAVOC_STACK_POW2;
+  custom_havoc_blk_small    = HAVOC_BLK_SMALL;
+  custom_havok_blk_medium   = HAVOC_BLK_MEDIUM;
+  custom_havoc_blk_large    = HAVOC_BLK_LARGE;
+  custom_splice_cycles      = SPLICE_CYCLES;
+  custom_splice_havoc       = SPLICE_HAVOC;
 }
 
 static void randomize_fuzzing_params() {
-  custom_havoc_stack_pow2 = rand_int_in_range(4, 10);
+  custom_havoc_cycles       = rand_int_in_range(192, 320);
+  custom_havoc_stack_pow2   = rand_int_in_range(4, 10);
+  custom_havoc_blk_small    = rand_int_in_range(24, 40);
+  custom_havok_blk_medium   = rand_int_in_range(96, 160);
+  custom_havoc_blk_large    = rand_int_in_range(1000, 2000);
+  custom_splice_cycles      = rand_int_in_range(10, 20);
+  custom_splice_havoc       = rand_int_in_range(24, 40);
 }
 
 /* The second part of the mechanism discussed above is a routine that
@@ -4905,23 +4917,23 @@ static u32 choose_block_len(u32 limit) {
   switch (UR(rlim)) {
 
     case 0:  min_value = 1;
-             max_value = HAVOC_BLK_SMALL;
+             max_value = custom_havoc_blk_small;
              break;
 
-    case 1:  min_value = HAVOC_BLK_SMALL;
-             max_value = HAVOC_BLK_MEDIUM;
+    case 1:  min_value = custom_havoc_blk_small;
+             max_value = custom_havok_blk_medium;
              break;
 
     default: 
 
              if (UR(10)) {
 
-               min_value = HAVOC_BLK_MEDIUM;
-               max_value = HAVOC_BLK_LARGE;
+               min_value = custom_havok_blk_medium;
+               max_value = custom_havoc_blk_large;
 
              } else {
 
-               min_value = HAVOC_BLK_LARGE;
+               min_value = custom_havoc_blk_large;
                max_value = HAVOC_BLK_XL;
 
              }
@@ -6327,7 +6339,7 @@ havoc_stage:
 
     stage_name  = "havoc";
     stage_short = "havoc";
-    stage_max   = (doing_det ? HAVOC_CYCLES_INIT : HAVOC_CYCLES) *
+    stage_max   = (doing_det ? HAVOC_CYCLES_INIT : custom_havoc_cycles) *
                   perf_score / havoc_div / 100;
 
   } else {
@@ -6339,7 +6351,7 @@ havoc_stage:
     sprintf(tmp, "splice %u", splice_cycle);
     stage_name  = tmp;
     stage_short = "splice";
-    stage_max   = SPLICE_HAVOC * perf_score / havoc_div / 100;
+    stage_max   = custom_splice_havoc * perf_score / havoc_div / 100;
 
   }
 
@@ -6783,7 +6795,7 @@ havoc_stage:
 
 retry_splicing:
 
-  if (use_splicing && splice_cycle++ < SPLICE_CYCLES &&
+  if (use_splicing && splice_cycle++ < custom_splice_cycles &&
       queued_paths > 1 && queue_cur->len > 1) {
 
     struct queue_entry* target;
@@ -8322,10 +8334,15 @@ int main(int argc, char** argv) {
 
       if (!disable_randomized_fuzzing_params) {
         // randomize fuzzing params with probabilities
-        if (UR(100) < randomize_parameters_prob)
+        OKF("WEASDASDASD %d", randomize_parameters_prob);
+        if (UR(100) < randomize_parameters_prob) {
           randomize_fuzzing_params();
-        else
+          OKF("YES RANDOM!!!");
+        }
+        else {
           reset_fuzzing_params();
+          OKF("NO RANDOM!!");
+        }
       }
 
       show_stats();
