@@ -8334,15 +8334,10 @@ int main(int argc, char** argv) {
 
       if (!disable_randomized_fuzzing_params) {
         // randomize fuzzing params with probabilities
-        OKF("WEASDASDASD %d", randomize_parameters_prob);
-        if (UR(100) < randomize_parameters_prob) {
+        if (UR(100) < randomize_parameters_prob)
           randomize_fuzzing_params();
-          OKF("YES RANDOM!!!");
-        }
-        else {
+        else
           reset_fuzzing_params();
-          OKF("NO RANDOM!!");
-        }
       }
 
       show_stats();
