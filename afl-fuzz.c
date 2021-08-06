@@ -8334,6 +8334,10 @@ int main(int argc, char** argv) {
 
       if (!disable_randomized_fuzzing_params) {
         // randomize fuzzing params with probabilities
+        // initialy set to 5 and increase 5 per hour maximum at 75 (i.e., 5%, 15%, 15%.. 75%)
+        u64 time_delta = get_cur_time() - start_time;
+        s32 fuzzing_hours = (time_delta / 1000 / 60 / 60) % 24;
+        randomize_parameters_prob = MIN(MAX(fuzzing_hours * 5, 5), 75);
         if (UR(100) < randomize_parameters_prob)
           randomize_fuzzing_params();
         else
