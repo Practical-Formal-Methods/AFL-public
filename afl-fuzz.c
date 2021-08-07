@@ -44,7 +44,6 @@
 #include "hash.h"
 
 #include <stdio.h>
-#include <math.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5272,7 +5271,7 @@ static u8 fuzz_one(char** argv) {
   // assign probability based on frequncy that the seed was chosen
   if (!disable_randomized_fuzzing_params) {
     // randomize fuzzing params with probabilities
-    int multiplier = queue_cur->num_fuzzed ? ceil(queue_cur->num_fuzzed/5000.0): 0;
+    int multiplier = queue_cur->num_fuzzed ? ((int)(queue_cur->num_fuzzed/5000.0)) + 1: 0;
     randomize_parameters_prob = MIN(MAX(multiplier * 5, 5), 75);
     if (UR(100) < randomize_parameters_prob)
       randomize_fuzzing_params();
