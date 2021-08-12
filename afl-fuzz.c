@@ -141,7 +141,8 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            disable_weighted_random_selection,
            disable_random_favorites,
            enable_uniformly_random_favorites,
-           disable_afl_default_favorites;
+           disable_afl_default_favorites,
+           disable_randomized_fuzzing_params;
 
 
 static s32 out_fd,                    /* Persistent fd for out_file       */
@@ -349,6 +350,17 @@ enum {
   /* 04 */ FAULT_NOINST,
   /* 05 */ FAULT_NOBITS
 };
+
+static int  randomize_parameters_prob;
+
+/* list of fuzzing parameter constants found in config.h */
+static int  custom_havoc_cycles       = HAVOC_CYCLES,
+            custom_havoc_stack_pow2   = HAVOC_STACK_POW2,
+            custom_havoc_blk_small    = HAVOC_BLK_SMALL,
+            custom_havok_blk_medium   = HAVOC_BLK_MEDIUM,
+            custom_havoc_blk_large    = HAVOC_BLK_LARGE,
+            custom_splice_cycles      = SPLICE_CYCLES,
+            custom_splice_havoc       = SPLICE_HAVOC;
 
 
 /* Get unix time in milliseconds */
@@ -1274,6 +1286,10 @@ double rand_double()
   return rnd / max;
 }
 
+int rand_int_in_range(int low, int high) {
+    int range = high - low + 1;
+    return low + UR(range);
+}
 
 /* When we bump into a new path, we call this to see if the path appears
    more "favorable" than any of the existing ones. The purpose of the
@@ -1400,6 +1416,26 @@ static void mark_selected_inputs() {
     total_selected++;
   }
 
+}
+
+static void reset_fuzzing_params() {
+  custom_havoc_cycles       = HAVOC_CYCLES;
+  custom_havoc_stack_pow2   = HAVOC_STACK_POW2;
+  custom_havoc_blk_small    = HAVOC_BLK_SMALL;
+  custom_havok_blk_medium   = HAVOC_BLK_MEDIUM;
+  custom_havoc_blk_large    = HAVOC_BLK_LARGE;
+  custom_splice_cycles      = SPLICE_CYCLES;
+  custom_splice_havoc       = SPLICE_HAVOC;
+}
+
+static void randomize_fuzzing_params() {
+  custom_havoc_cycles       = rand_int_in_range(192, 320);
+  custom_havoc_stack_pow2   = rand_int_in_range(4, 10);
+  custom_havoc_blk_small    = rand_int_in_range(24, 40);
+  custom_havok_blk_medium   = rand_int_in_range(96, 160);
+  custom_havoc_blk_large    = rand_int_in_range(1000, 2000);
+  custom_splice_cycles      = rand_int_in_range(10, 20);
+  custom_splice_havoc       = rand_int_in_range(24, 40);
 }
 
 /* The second part of the mechanism discussed above is a routine that
@@ -4881,23 +4917,23 @@ static u32 choose_block_len(u32 limit) {
   switch (UR(rlim)) {
 
     case 0:  min_value = 1;
-             max_value = HAVOC_BLK_SMALL;
+             max_value = custom_havoc_blk_small;
              break;
 
-    case 1:  min_value = HAVOC_BLK_SMALL;
-             max_value = HAVOC_BLK_MEDIUM;
+    case 1:  min_value = custom_havoc_blk_small;
+             max_value = custom_havok_blk_medium;
              break;
 
     default: 
 
              if (UR(10)) {
 
-               min_value = HAVOC_BLK_MEDIUM;
-               max_value = HAVOC_BLK_LARGE;
+               min_value = custom_havok_blk_medium;
+               max_value = custom_havoc_blk_large;
 
              } else {
 
-               min_value = HAVOC_BLK_LARGE;
+               min_value = custom_havoc_blk_large;
                max_value = HAVOC_BLK_XL;
 
              }
@@ -5230,6 +5266,17 @@ static u8 fuzz_one(char** argv) {
     ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
          current_entry, queued_paths, unique_crashes);
     fflush(stdout);
+  }
+
+  // assign probability based on frequncy that the seed was chosen
+  if (!disable_randomized_fuzzing_params) {
+    // randomize fuzzing params with probabilities
+    int multiplier = queue_cur->num_fuzzed ? ((int)(queue_cur->num_fuzzed/5000.0)) + 1: 0;
+    randomize_parameters_prob = MIN(MAX(multiplier * 5, 5), 75);
+    if (UR(100) < randomize_parameters_prob)
+      randomize_fuzzing_params();
+    else
+      reset_fuzzing_params();
   }
 
   /* Map the test case into memory. */
@@ -6303,7 +6350,7 @@ havoc_stage:
 
     stage_name  = "havoc";
     stage_short = "havoc";
-    stage_max   = (doing_det ? HAVOC_CYCLES_INIT : HAVOC_CYCLES) *
+    stage_max   = (doing_det ? HAVOC_CYCLES_INIT : custom_havoc_cycles) *
                   perf_score / havoc_div / 100;
 
   } else {
@@ -6315,7 +6362,7 @@ havoc_stage:
     sprintf(tmp, "splice %u", splice_cycle);
     stage_name  = tmp;
     stage_short = "splice";
-    stage_max   = SPLICE_HAVOC * perf_score / havoc_div / 100;
+    stage_max   = custom_splice_havoc * perf_score / havoc_div / 100;
 
   }
 
@@ -6332,7 +6379,7 @@ havoc_stage:
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
-    u32 use_stacking = 1 << (1 + UR(HAVOC_STACK_POW2));
+    u32 use_stacking = 1 << (1 + UR(custom_havoc_stack_pow2));
 
     stage_cur_val = use_stacking;
  
@@ -6759,7 +6806,7 @@ havoc_stage:
 
 retry_splicing:
 
-  if (use_splicing && splice_cycle++ < SPLICE_CYCLES &&
+  if (use_splicing && splice_cycle++ < custom_splice_cycles &&
       queued_paths > 1 && queue_cur->len > 1) {
 
     struct queue_entry* target;
@@ -8187,8 +8234,13 @@ int main(int argc, char** argv) {
 
   if (getenv("AFL_DISABLE_WRS"))      disable_weighted_random_selection   = 1;
   if (getenv("AFL_DISABLE_RF"))       disable_random_favorites            = 1;
-  if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favorites    = 1;
+  if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favorites   = 1;
   if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
+  if (getenv("AFL_DISABLE_RP"))       disable_randomized_fuzzing_params   = 1;
+
+  if (getenv("AFL_RP_PROB")) {
+    randomize_parameters_prob = strtoul(getenv("AFL_RP_PROB"), 0L, 10);
+  } 
 
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
