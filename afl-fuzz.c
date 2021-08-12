@@ -8343,7 +8343,6 @@ int main(int argc, char** argv) {
       if (!disable_weighted_random_selection)
         mark_selected_inputs();
 
-
       show_stats();
 
       if (not_on_tty) {
