@@ -5268,6 +5268,17 @@ static u8 fuzz_one(char** argv) {
     fflush(stdout);
   }
 
+  // assign probability based on frequncy that the seed was chosen
+  if (!disable_randomized_fuzzing_params) {
+    // randomize fuzzing params with probabilities
+    int multiplier = queue_cur->num_fuzzed ? ((int)(queue_cur->num_fuzzed/5000.0)) + 1: 0;
+    randomize_parameters_prob = MIN(MAX(multiplier * 5, 5), 75);
+    if (UR(100) < randomize_parameters_prob)
+      randomize_fuzzing_params();
+    else
+      reset_fuzzing_params();
+  }
+
   /* Map the test case into memory. */
 
   fd = open(queue_cur->fname, O_RDONLY);
@@ -8332,13 +8343,6 @@ int main(int argc, char** argv) {
       if (!disable_weighted_random_selection)
         mark_selected_inputs();
 
-      if (!disable_randomized_fuzzing_params) {
-        // randomize fuzzing params with probabilities
-        if (UR(100) < randomize_parameters_prob)
-          randomize_fuzzing_params();
-        else
-          reset_fuzzing_params();
-      }
 
       show_stats();
 
