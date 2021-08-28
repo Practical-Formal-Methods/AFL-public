@@ -8238,10 +8238,6 @@ int main(int argc, char** argv) {
   if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
   if (getenv("AFL_DISABLE_RP"))       disable_randomized_fuzzing_params   = 1;
 
-  if (getenv("AFL_RP_PROB")) {
-    randomize_parameters_prob = strtoul(getenv("AFL_RP_PROB"), 0L, 10);
-  } 
-
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
     if (!hang_tmout) FATAL("Invalid value of AFL_HANG_TMOUT");
