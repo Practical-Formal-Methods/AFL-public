@@ -281,6 +281,7 @@ struct potential_favored_input {
   struct potential_favored_input *next;
 };
 
+static double scale_fac_boost_fast_custom;
 static struct potential_favored_input* potential_favored_list[MAP_SIZE];
 static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
                           *queue_cur, /* Current offset within the queue  */
@@ -1512,7 +1513,7 @@ static void cull_queue(void) {
         // enable_boost_fast_seqs
         double base_weight_fac_boost_fast = 8.0;
         double max_weight_fac_decr = 7.0;
-        double scale_fac_boost_fast = 0.005;
+        double scale_fac_boost_fast = scale_fac_boost_fast_custom ? scale_fac_boost_fast_custom : 0.005;        
         double execs_per_sec = 1000000.0 / (double) q->exec_us;
         weight *= base_weight_fac_boost_fast - max_weight_fac_decr / (scale_fac_boost_fast*execs_per_sec + 1.0);
       }
@@ -8237,6 +8238,12 @@ int main(int argc, char** argv) {
   if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favorites   = 1;
   if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
   if (getenv("AFL_DISABLE_RP"))       disable_randomized_fuzzing_params   = 1;
+
+  if (getenv("scale_fac_boost_fast")) {
+    char *pEnd;
+    scale_fac_boost_fast_custom = strtod(getenv("scale_fac_boost_fast"), &pEnd);
+    OKF("scale_fac_boost_fast provided: %f", scale_fac_boost_fast_custom);
+  }
 
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
