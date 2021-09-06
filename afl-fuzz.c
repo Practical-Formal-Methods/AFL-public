@@ -3660,6 +3660,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
   fprintf(f, "start_time        : %llu\n"
              "last_update       : %llu\n"
              "fuzzer_pid        : %u\n"
+             "scale_fac_boost_fast_custom     : %0.05f\n"
              "cycles_done       : %llu\n"
              "execs_done        : %llu\n"
              "execs_per_sec     : %0.02f\n"
@@ -3687,6 +3688,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "command_line      : %s\n"
              "slowest_exec_ms   : %llu\n",
              start_time / 1000, get_cur_time() / 1000, getpid(),
+             scale_fac_boost_fast_custom,
              queue_cycle ? (queue_cycle - 1) : 0, total_execs, eps,
              queued_paths, queued_favored, queued_discovered, queued_imported,
              max_depth, current_entry, pending_favored, pending_not_fuzzed,
