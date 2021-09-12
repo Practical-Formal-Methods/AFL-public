@@ -1512,7 +1512,7 @@ static void cull_queue(void) {
         // enable_boost_fast_seqs
         double base_weight_fac_boost_fast = 8.0;
         double max_weight_fac_decr = 7.0;
-        double scale_fac_boost_fast = 0.005;
+        double scale_fac_boost_fast = 0.001; // based on the past experiment, 0.001 seems to be the best winner among 0.005, 0.0025, 0.0005
         double execs_per_sec = 1000000.0 / (double) q->exec_us;
         weight *= base_weight_fac_boost_fast - max_weight_fac_decr / (scale_fac_boost_fast*execs_per_sec + 1.0);
       }
