@@ -56,6 +56,7 @@
 #include <termios.h>
 #include <dlfcn.h>
 #include <sched.h>
+#include <limits.h>
 
 #include <sys/wait.h>
 #include <sys/time.h>
@@ -136,7 +137,13 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            run_over10m,               /* Run time over 10 minutes?        */
            persistent_mode,           /* Running in persistent mode?      */
            deferred_mode,             /* Deferred forkserver mode?        */
-           fast_cal;                  /* Try to calibrate faster?         */
+           fast_cal,                  /* Try to calibrate faster?         */
+           disable_weighted_random_selection,
+           disable_random_favorites,
+           enable_uniformly_random_favorites,
+           disable_afl_default_favorites,
+           disable_randomized_fuzzing_params;
+
 
 static s32 out_fd,                    /* Persistent fd for out_file       */
            dev_urandom_fd = -1,       /* Persistent fd for /dev/urandom   */
@@ -250,14 +257,16 @@ struct queue_entry {
       has_new_cov,                    /* Triggers new coverage?           */
       var_behavior,                   /* Variable behavior?               */
       favored,                        /* Currently favored?               */
-      fs_redundant;                   /* Marked as redundant in the fs?   */
+      fs_redundant,                   /* Marked as redundant in the fs?   */
+      is_selected;
 
   u32 bitmap_size,                    /* Number of bits set in bitmap     */
       exec_cksum;                     /* Checksum of the execution trace  */
-
+  u64 rand;
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
-      depth;                          /* Path depth                       */
+      depth,                          /* Path depth                       */
+      num_fuzzed;                         /* no. of fuzz                      */
 
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */
@@ -267,6 +276,12 @@ struct queue_entry {
 
 };
 
+struct potential_favored_input {
+  struct queue_entry *queue;
+  struct potential_favored_input *next;
+};
+
+static struct potential_favored_input* potential_favored_list[MAP_SIZE];
 static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
                           *queue_cur, /* Current offset within the queue  */
                           *queue_top, /* Top of the list                  */
@@ -335,6 +350,17 @@ enum {
   /* 04 */ FAULT_NOINST,
   /* 05 */ FAULT_NOBITS
 };
+
+static int  randomize_parameters_prob;
+
+/* list of fuzzing parameter constants found in config.h */
+static int  custom_havoc_cycles       = HAVOC_CYCLES,
+            custom_havoc_stack_pow2   = HAVOC_STACK_POW2,
+            custom_havoc_blk_small    = HAVOC_BLK_SMALL,
+            custom_havok_blk_medium   = HAVOC_BLK_MEDIUM,
+            custom_havoc_blk_large    = HAVOC_BLK_LARGE,
+            custom_splice_cycles      = SPLICE_CYCLES,
+            custom_splice_havoc       = SPLICE_HAVOC;
 
 
 /* Get unix time in milliseconds */
@@ -809,6 +835,7 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->len          = len;
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
+  q->num_fuzzed   = 0;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1251,6 +1278,18 @@ static void minimize_bits(u8* dst, u8* src) {
 
 }
 
+double rand_double() 
+{
+  // return random value in interval [0.0,1.0)
+  double rnd = (double)UR(RAND_MAX);
+  double max = (double)RAND_MAX;
+  return rnd / max;
+}
+
+int rand_int_in_range(int low, int high) {
+    int range = high - low + 1;
+    return low + UR(range);
+}
 
 /* When we bump into a new path, we call this to see if the path appears
    more "favorable" than any of the existing ones. The purpose of the
@@ -1266,6 +1305,23 @@ static void update_bitmap_score(struct queue_entry* q) {
 
   u32 i;
   u64 fav_factor = q->exec_us * q->len;
+
+  // this overides how afl tracks score for favorite input selection
+  if (!disable_random_favorites) {
+    for (i = 0; i < MAP_SIZE; i++) {
+      if (trace_bits[i]) {
+
+      // insert a new element of input into a linked list for current edge id
+      struct potential_favored_input* new_potential = ck_alloc(sizeof(struct potential_favored_input));
+      new_potential->queue = q;
+      new_potential->next = potential_favored_list[i];
+
+      potential_favored_list[i] = new_potential;
+      score_changed = 1;
+      }
+    }
+    return;
+  }
 
   /* For every byte set in trace_bits[], see if there is a previous winner,
      and how it compares to us. */
@@ -1306,6 +1362,81 @@ static void update_bitmap_score(struct queue_entry* q) {
 
 }
 
+// find the first element in array that is greater or equal target
+int first_greater_element(double arr[], double target, int end)
+{
+    int lo = 0;
+    int hi = end;
+    while (lo < hi) {
+      int mid = lo + ((hi - lo) / 2);
+      if (target < arr[mid]) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return lo;
+}
+
+
+static void mark_selected_inputs() {
+  double cumulative_sum[queued_paths];
+  double total_weight = 0.0;
+  struct queue_entry* q;
+  struct queue_entry* queue_list[queued_paths];
+
+  int idx = 0;
+  q = queue;
+  // generate weight for each input and sum into an array
+  while (q) {
+    double w = 1.0;
+    if (q->favored) {
+      w *= 20.0;
+    } else if (!q->was_fuzzed) {
+      w *= 1.0; // based on the experiments, 1.0 outperforms 5.0 (which is the original probabilities to fuzz brand new inputs in AFL)
+    }
+
+    q->is_selected = 0; // reset flag from previous cycle
+    total_weight += w;
+    queue_list[idx] = q;
+    cumulative_sum[idx] = total_weight;
+    q = q->next;
+    idx++;
+  }
+
+  int total_selected = 0;
+  while (total_selected < 64) {
+    // find random number and search this number in the array
+    double r = rand_double() * total_weight; 
+    int seed_idx = first_greater_element(cumulative_sum, r, queued_paths);
+    if (queue_list[seed_idx]->is_selected)
+      break;
+
+    queue_list[seed_idx]->is_selected = 1;
+    total_selected++;
+  }
+
+}
+
+static void reset_fuzzing_params() {
+  custom_havoc_cycles       = HAVOC_CYCLES;
+  custom_havoc_stack_pow2   = HAVOC_STACK_POW2;
+  custom_havoc_blk_small    = HAVOC_BLK_SMALL;
+  custom_havok_blk_medium   = HAVOC_BLK_MEDIUM;
+  custom_havoc_blk_large    = HAVOC_BLK_LARGE;
+  custom_splice_cycles      = SPLICE_CYCLES;
+  custom_splice_havoc       = SPLICE_HAVOC;
+}
+
+static void randomize_fuzzing_params() {
+  custom_havoc_cycles       = rand_int_in_range(192, 320);
+  custom_havoc_stack_pow2   = rand_int_in_range(4, 10);
+  custom_havoc_blk_small    = rand_int_in_range(24, 40);
+  custom_havok_blk_medium   = rand_int_in_range(96, 160);
+  custom_havoc_blk_large    = rand_int_in_range(1000, 2000);
+  custom_splice_cycles      = rand_int_in_range(10, 20);
+  custom_splice_havoc       = rand_int_in_range(24, 40);
+}
 
 /* The second part of the mechanism discussed above is a routine that
    goes over top_rated[] entries, and then sequentially grabs winners for
@@ -1330,31 +1461,106 @@ static void cull_queue(void) {
 
   q = queue;
 
-  while (q) {
-    q->favored = 0;
-    q = q->next;
+  // use AFL's original mechanism to assign favorites
+  if (disable_random_favorites) {
+
+    while (q) {
+      if (disable_afl_default_favorites)
+        q->favored = 1;
+      else
+        q->favored = 0;
+      q = q->next;
+    }
+
+    /* Let's see if anything in the bitmap isn't captured in temp_v.
+      If yes, and if it has a top_rated[] contender, let's use it. */
+
+    for (i = 0; i < MAP_SIZE; i++)
+      if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
+
+        u32 j = MAP_SIZE >> 3;
+
+        /* Remove all bits belonging to the current entry from temp_v. */
+
+        while (j--) 
+          if (top_rated[i]->trace_mini[j])
+            temp_v[j] &= ~top_rated[i]->trace_mini[j];
+
+        top_rated[i]->favored = 1;
+        queued_favored++;
+
+        if (!top_rated[i]->was_fuzzed) pending_favored++;
+
+      }
+      
+  } else {
+    // otherwise, randomly assign favorites
+    int r;
+    int rid;
+    double weight;
+
+    while (q) {
+      weight = 1.0;
+      if (!enable_uniformly_random_favorites) {
+        // enable_boost_inputs
+        double base_weight_fac_boost_inputs = 1.0;
+        double max_weight_fac_incr = 7.0;
+        double scale_fac_boost_inputs = 0.001;
+        double num_selections = (double)q->num_fuzzed;
+        weight *= base_weight_fac_boost_inputs + max_weight_fac_incr / (scale_fac_boost_inputs * num_selections + 1.0);
+
+        // enable_boost_fast_seqs
+        double base_weight_fac_boost_fast = 8.0;
+        double max_weight_fac_decr = 7.0;
+        double scale_fac_boost_fast = 0.001; // based on the past experiment, 0.001 seems to be the best winner among 0.005, 0.0025, 0.0005
+        double execs_per_sec = 1000000.0 / (double) q->exec_us;
+        weight *= base_weight_fac_boost_fast - max_weight_fac_decr / (scale_fac_boost_fast*execs_per_sec + 1.0);
+      }
+      r = 0;
+      rid = INT_MAX;
+      while (weight >= 1.0) {
+        r = UR(INT_MAX);
+        if (r < rid)
+          rid = r;
+        weight -= 1.0;
+      }
+      if (weight > 0.0 && weight > rand_double()) {
+        r = UR(INT_MAX);
+        if (r < rid)
+          rid = r;
+      }
+
+      q->favored = 0;
+      q->rand = rid;
+      q = q->next;
+    }
+
+    for (i = 0; i < MAP_SIZE; i++) {
+      if (potential_favored_list[i]) {
+        struct potential_favored_input* potential_input = potential_favored_list[i];
+        struct queue_entry* new_top_rated;
+        int minimum_random_number = INT_MAX;
+
+        while (potential_input) {
+          // if the random is the new minimum, the seed is favored
+          if (potential_input->queue->rand < minimum_random_number) {
+            minimum_random_number = potential_input->queue->rand;
+            new_top_rated = potential_input->queue;
+          }
+          potential_input = potential_input->next;
+        }
+
+        if (new_top_rated && !new_top_rated->favored) {
+          new_top_rated->favored = 1;
+          queued_favored++;
+          if (!new_top_rated->was_fuzzed)
+            pending_favored++;
+        }
+      }
+    }
   }
 
-  /* Let's see if anything in the bitmap isn't captured in temp_v.
-     If yes, and if it has a top_rated[] contender, let's use it. */
 
-  for (i = 0; i < MAP_SIZE; i++)
-    if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
-
-      u32 j = MAP_SIZE >> 3;
-
-      /* Remove all bits belonging to the current entry from temp_v. */
-
-      while (j--) 
-        if (top_rated[i]->trace_mini[j])
-          temp_v[j] &= ~top_rated[i]->trace_mini[j];
-
-      top_rated[i]->favored = 1;
-      queued_favored++;
-
-      if (!top_rated[i]->was_fuzzed) pending_favored++;
-
-    }
 
   q = queue;
 
@@ -4662,6 +4868,8 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   fault = run_target(argv, exec_tmout);
 
+  queue_cur->num_fuzzed++;
+
   if (stop_soon) return 1;
 
   if (fault == FAULT_TMOUT) {
@@ -4709,23 +4917,23 @@ static u32 choose_block_len(u32 limit) {
   switch (UR(rlim)) {
 
     case 0:  min_value = 1;
-             max_value = HAVOC_BLK_SMALL;
+             max_value = custom_havoc_blk_small;
              break;
 
-    case 1:  min_value = HAVOC_BLK_SMALL;
-             max_value = HAVOC_BLK_MEDIUM;
+    case 1:  min_value = custom_havoc_blk_small;
+             max_value = custom_havok_blk_medium;
              break;
 
     default: 
 
              if (UR(10)) {
 
-               min_value = HAVOC_BLK_MEDIUM;
-               max_value = HAVOC_BLK_LARGE;
+               min_value = custom_havok_blk_medium;
+               max_value = custom_havoc_blk_large;
 
              } else {
 
-               min_value = HAVOC_BLK_LARGE;
+               min_value = custom_havoc_blk_large;
                max_value = HAVOC_BLK_XL;
 
              }
@@ -5012,6 +5220,10 @@ static u8 fuzz_one(char** argv) {
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
 
+  // only fuzz selected inputs from our custom selection algorithm 
+  if (!disable_weighted_random_selection && !queue_cur->is_selected)
+    return 1;
+
 #ifdef IGNORE_FINDS
 
   /* In IGNORE_FINDS mode, skip any entries that weren't in the
@@ -5054,6 +5266,17 @@ static u8 fuzz_one(char** argv) {
     ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
          current_entry, queued_paths, unique_crashes);
     fflush(stdout);
+  }
+
+  // assign probability based on frequncy that the seed was chosen
+  if (!disable_randomized_fuzzing_params) {
+    // randomize fuzzing params with probabilities
+    int multiplier = queue_cur->num_fuzzed ? ((int)(queue_cur->num_fuzzed/5000.0)) + 1: 0;
+    randomize_parameters_prob = MIN(MAX(multiplier * 5, 5), 75);
+    if (UR(100) < randomize_parameters_prob)
+      randomize_fuzzing_params();
+    else
+      reset_fuzzing_params();
   }
 
   /* Map the test case into memory. */
@@ -6127,7 +6350,7 @@ havoc_stage:
 
     stage_name  = "havoc";
     stage_short = "havoc";
-    stage_max   = (doing_det ? HAVOC_CYCLES_INIT : HAVOC_CYCLES) *
+    stage_max   = (doing_det ? HAVOC_CYCLES_INIT : custom_havoc_cycles) *
                   perf_score / havoc_div / 100;
 
   } else {
@@ -6139,7 +6362,7 @@ havoc_stage:
     sprintf(tmp, "splice %u", splice_cycle);
     stage_name  = tmp;
     stage_short = "splice";
-    stage_max   = SPLICE_HAVOC * perf_score / havoc_div / 100;
+    stage_max   = custom_splice_havoc * perf_score / havoc_div / 100;
 
   }
 
@@ -6156,7 +6379,7 @@ havoc_stage:
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
-    u32 use_stacking = 1 << (1 + UR(HAVOC_STACK_POW2));
+    u32 use_stacking = 1 << (1 + UR(custom_havoc_stack_pow2));
 
     stage_cur_val = use_stacking;
  
@@ -6583,7 +6806,7 @@ havoc_stage:
 
 retry_splicing:
 
-  if (use_splicing && splice_cycle++ < SPLICE_CYCLES &&
+  if (use_splicing && splice_cycle++ < custom_splice_cycles &&
       queued_paths > 1 && queue_cur->len > 1) {
 
     struct queue_entry* target;
@@ -8009,6 +8232,12 @@ int main(int argc, char** argv) {
   if (getenv("AFL_SHUFFLE_QUEUE")) shuffle_queue    = 1;
   if (getenv("AFL_FAST_CAL"))      fast_cal         = 1;
 
+  if (getenv("AFL_DISABLE_WRS"))      disable_weighted_random_selection   = 1;
+  if (getenv("AFL_DISABLE_RF"))       disable_random_favorites            = 1;
+  if (getenv("AFL_ENABLE_UF"))        enable_uniformly_random_favorites   = 1;
+  if (getenv("AFL_DISABLE_FAVS"))     disable_afl_default_favorites       = 1;
+  if (getenv("AFL_DISABLE_RP"))       disable_randomized_fuzzing_params   = 1;
+
   if (getenv("AFL_HANG_TMOUT")) {
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
     if (!hang_tmout) FATAL("Invalid value of AFL_HANG_TMOUT");
@@ -8106,6 +8335,9 @@ int main(int argc, char** argv) {
         seek_to--;
         queue_cur = queue_cur->next;
       }
+
+      if (!disable_weighted_random_selection)
+        mark_selected_inputs();
 
       show_stats();
 
